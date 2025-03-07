@@ -5,7 +5,7 @@ import math
 
 # Loading pre-trained model
 print("Loading model...")
-model = YOLO("yolo11n-pose.pt")  # Or use other larger model variants
+model = YOLO("yolo11n-pose.pt")
 print("Model loading complete!")
 
 def is_lying_down(keypoints):
@@ -13,12 +13,12 @@ def is_lying_down(keypoints):
     Analyze body keypoints to determine if the person is in a lying down position
     keypoints: Keypoint coordinates detected by the model
     """
-    # Check if keypoints array is empty or insufficient
+# Check if keypoints array is empty or insufficient
     if keypoints is None or len(keypoints) < 17:
         print("Insufficient number of keypoints")
         return False
         
-    # Extract shoulder and hip keypoints
+# Extract shoulder and hip keypoints
     try:
         left_shoulder = keypoints[5]
         right_shoulder = keypoints[6]
@@ -28,7 +28,7 @@ def is_lying_down(keypoints):
         print("Unable to retrieve required keypoints")
         return False
     
-    # Check if keypoints are valid
+# Check if keypoints are valid
     if all(point[2] > 0.5 for point in [left_shoulder, right_shoulder, left_hip, right_hip]):
         # Calculate torso vector angle
         torso_vector_x = ((left_hip[0] + right_hip[0]) / 2) - ((left_shoulder[0] + right_shoulder[0]) / 2)
@@ -54,13 +54,12 @@ def process_image(image_path):
         print(f"Unable to read image: {image_path}")
         return
     
-    # Get and print image resolution
     height, width = img.shape[:2]
     print(f"Image resolution: {width}x{height}")
     
     results = model(img)
     
-    # Display results on the image
+# Display results on the image
     for result in results:
         if result.keypoints is not None and len(result.keypoints.data) > 0:
             keypoints = result.keypoints.data[0].cpu().numpy()  # Take the first detected person
@@ -73,7 +72,6 @@ def process_image(image_path):
             cv2.putText(img, f"Posture: {posture}", (10, 30), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             
-            # Draw keypoints and skeleton
             annotated_frame = result.plot()
             cv2.imshow("Pose Detection", annotated_frame)
         else:
@@ -93,11 +91,9 @@ def process_video(video_source=0, width=1920, height=1080):  # 0 represents defa
         print(f"Unable to open video source: {video_source}")
         return
     
-    # Set desired resolution
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     
-    # Check actual resolution (may differ from requested if camera doesn't support it)
     actual_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     actual_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     print(f"Camera resolution: {int(actual_width)}x{int(actual_height)}")
@@ -115,7 +111,6 @@ def process_video(video_source=0, width=1920, height=1080):  # 0 represents defa
         annotated_frame = frame.copy()
         
         for result in results:
-            # Safely check if keypoints exist
             if (result.keypoints is not None and 
                 hasattr(result.keypoints, 'data') and 
                 len(result.keypoints.data) > 0 and 
@@ -126,21 +121,18 @@ def process_video(video_source=0, width=1920, height=1080):  # 0 represents defa
                     lying_down = is_lying_down(keypoints)
                     posture = "Lying down" if lying_down else "Standing/Sitting"
                     
-                    # Display posture label on the image
+
                     cv2.putText(frame, f"Posture: {posture}", (10, 30), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 except Exception as e:
                     print(f"Error processing keypoints: {e}")
             
-            # Draw keypoints and skeleton, even if posture analysis fails
             try:
                 annotated_frame = result.plot()
             except Exception as e:
                 print(f"Error drawing results: {e}")
-                # If drawing fails, use original frame
                 annotated_frame = frame
         
-        # Display frame with detection results
         cv2.imshow("Pose Detection", annotated_frame)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
