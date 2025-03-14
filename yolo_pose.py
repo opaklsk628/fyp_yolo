@@ -3,8 +3,9 @@ import cv2
 import numpy as np
 import math
 
+# Loading pre-trained model
 print("Loading model...")
-model = YOLO("yolo11n-pose.pt")
+model = YOLO("yolo11n-pose.pt")  # Or use other larger model variants
 print("Model loading complete!")
 
 def is_lying_down_advanced(keypoints):
@@ -12,13 +13,13 @@ def is_lying_down_advanced(keypoints):
     Advanced analysis of body keypoints to determine if the person is lying down
     using multiple criteria including torso angle and keypoint distribution
     """
-# Check if keypoints array is empty or insufficient
+    # Check if keypoints array is empty or insufficient
     if keypoints is None or len(keypoints) < 17:
         print("Insufficient number of keypoints")
         return False
         
     try:
-# Extract key body landmarks
+        # Extract key body landmarks
         nose = keypoints[0]
         left_shoulder = keypoints[5]
         right_shoulder = keypoints[6]
@@ -27,57 +28,58 @@ def is_lying_down_advanced(keypoints):
         left_ankle = keypoints[15]
         right_ankle = keypoints[16]
         
-# Check confidence for essential keypoints
+        # Check confidence for essential keypoints
         key_points = [left_shoulder, right_shoulder, left_hip, right_hip]
         if not all(point[2] > 0.5 for point in key_points):
             print("Low confidence in essential keypoints")
             return False
         
-# Calculate vertical distribution of key points with sufficient confidence
+        # Calculate vertical distribution of key points with sufficient confidence
         y_values = [point[1] for point in [nose, left_shoulder, right_shoulder, 
                                           left_hip, right_hip, left_ankle, right_ankle] 
                     if point[2] > 0.5]
         
-# Calculate midpoints of shoulders and hips
+        # Calculate midpoints of shoulders and hips
         shoulders_midpoint = [(left_shoulder[0] + right_shoulder[0])/2, 
                               (left_shoulder[1] + right_shoulder[1])/2]
         hips_midpoint = [(left_hip[0] + right_hip[0])/2, 
                          (left_hip[1] + right_hip[1])/2]
         
-# Calculate torso vector angle with horizontal
+        # Calculate torso vector angle with horizontal
         torso_vector = [hips_midpoint[0] - shoulders_midpoint[0], 
                         hips_midpoint[1] - shoulders_midpoint[1]]
         angle = math.degrees(math.atan2(torso_vector[1], torso_vector[0]))
         print(f"Detected torso angle: {angle:.2f} degrees")
         
-# Criterion 1: Torso is approximately horizontal
+        # Criterion 1: Torso is approximately horizontal
         horizontal_torso = abs(angle) < 30 or abs(angle) > 150
         
-# Criterion 2: Analyze distribution of keypoints in horizontal vs vertical space
+        # Criterion 2: Analyze distribution of keypoints in horizontal vs vertical space
         if len(y_values) >= 3:
-# Get x coordinates of key points
+            # Get x coordinates of key points
             x_values = [point[0] for point in key_points]
             
-# Calculate ranges and standard deviation
+            # Calculate ranges and standard deviation
             y_range = max(y_values) - min(y_values)
             y_std = np.std(y_values)
             x_range = max(x_values) - min(x_values)
             
-# When lying down, horizontal spread should be greater than vertical spread
+            # When lying down, horizontal spread should be greater than vertical spread
             ratio_check = x_range > y_range * 1.5
             
             print(f"X-range: {x_range:.2f}, Y-range: {y_range:.2f}, Ratio check: {ratio_check}")
             
-# Combined criteria for improved accuracy
+            # Combined criteria for improved accuracy
             return horizontal_torso and ratio_check
         
-# Fall back to just torso angle if we don't have enough points for distribution analysis
+        # Fall back to just torso angle if we don't have enough points for distribution analysis
         return horizontal_torso
         
     except Exception as e:
         print(f"Error in posture analysis: {e}")
         return False
 
+# Process a single image
 def process_image(image_path):
     print(f"Processing image: {image_path}")
     img = cv2.imread(image_path)
@@ -86,14 +88,17 @@ def process_image(image_path):
         print(f"Unable to read image: {image_path}")
         return
     
+    # Get and print image resolution
     height, width = img.shape[:2]
     print(f"Image resolution: {width}x{height}")
     
     results = model(img)
     
+    # Count variables
     standing_sitting_count = 0
     lying_down_count = 0
     
+    # Display results on the image
     for result in results:
         if result.keypoints is not None and len(result.keypoints.data) > 0:
             # Process all detected people
@@ -131,7 +136,8 @@ def process_image(image_path):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def process_video(video_source=0, width=1920, height=1080):
+# Process video stream
+def process_video(video_source=0, width=1920, height=1080):  # 0 represents default camera
     print(f"Opening video source: {video_source}")
     cap = cv2.VideoCapture(video_source)
     
@@ -139,9 +145,11 @@ def process_video(video_source=0, width=1920, height=1080):
         print(f"Unable to open video source: {video_source}")
         return
     
+    # Set desired resolution
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     
+    # Check actual resolution (may differ from requested if camera doesn't support it)
     actual_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     actual_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     print(f"Camera resolution: {int(actual_width)}x{int(actual_height)}")
@@ -156,6 +164,7 @@ def process_video(video_source=0, width=1920, height=1080):
             
         results = model(frame)
         
+        # Count variables for each frame
         standing_sitting_count = 0
         lying_down_count = 0
         
