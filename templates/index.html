@@ -6,25 +6,38 @@
     <style>
       body { font-family: Arial, sans-serif; }
       #counts { margin-top: 10px; }
+      #alert {
+        display: none;
+        background-color: red;
+        color: white;
+        padding: 10px;
+        text-align: center;
+        font-size: 20px;
+        font-weight: bold;
+      }
     </style>
   </head>
   <body>
+    <div id="alert">發現有人倒下! 請即救援!</div>
     <h1>即時人體姿態偵測</h1>
-    <!-- 串流影像 -->
     <img src="{{ url_for('video_feed') }}" width="100%" alt="Video Stream">
-    <!-- 顯示人數計數 -->
     <div id="counts">
       <p>Standing/Sitting: <span id="standing_sitting_count">0</span></p>
       <p>Lying down: <span id="lying_down_count">0</span></p>
     </div>
     <script>
-      // 定時呼叫 /counts API 取得最新數字並更新頁面
       function updateCounts() {
         fetch("{{ url_for('counts') }}")
           .then(response => response.json())
           .then(data => {
             document.getElementById("standing_sitting_count").textContent = data.standing_sitting;
             document.getElementById("lying_down_count").textContent = data.lying_down;
+
+            if (data.lying_down >= 1) {
+              document.getElementById("alert").style.display = "block";
+            } else {
+              document.getElementById("alert").style.display = "none";
+            }
           })
           .catch(err => console.error("Error fetching counts:", err));
       }

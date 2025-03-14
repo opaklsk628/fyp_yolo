@@ -10,7 +10,7 @@ app = Flask(__name__)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 print("Loading model...")
-model = YOLO("yolo11n-pose.pt")
+model = YOLO("yolo11s-pose.pt")
 print("Model loading complete!")
 
 def is_lying_down_advanced(keypoints):
