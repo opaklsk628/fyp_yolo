@@ -3,10 +3,33 @@
   <head>
     <meta charset="UTF-8">
     <title>Real-time Pose Detection</title>
+    <style>
+      body { font-family: Arial, sans-serif; }
+      #counts { margin-top: 10px; }
+    </style>
   </head>
   <body>
     <h1>即時人體姿態偵測</h1>
-    <img src="{{ url_for('video_feed') }}" width="100%">
+    <!-- 串流影像 -->
+    <img src="{{ url_for('video_feed') }}" width="100%" alt="Video Stream">
+    <!-- 顯示人數計數 -->
+    <div id="counts">
+      <p>Standing/Sitting: <span id="standing_sitting_count">0</span></p>
+      <p>Lying down: <span id="lying_down_count">0</span></p>
+    </div>
+    <script>
+      // 定時呼叫 /counts API 取得最新數字並更新頁面
+      function updateCounts() {
+        fetch("{{ url_for('counts') }}")
+          .then(response => response.json())
+          .then(data => {
+            document.getElementById("standing_sitting_count").textContent = data.standing_sitting;
+            document.getElementById("lying_down_count").textContent = data.lying_down;
+          })
+          .catch(err => console.error("Error fetching counts:", err));
+      }
+      setInterval(updateCounts, 1000);
+    </script>
   </body>
 </html>
 

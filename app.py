@@ -1,17 +1,19 @@
-from flask import Flask, render_template, Response
+from flask import Flask, render_template, Response, jsonify
 from ultralytics import YOLO
 import cv2
 import numpy as np
 import math
+import redis
 
 app = Flask(__name__)
+
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 print("Loading model...")
 model = YOLO("yolo11n-pose.pt")
 print("Model loading complete!")
 
 def is_lying_down_advanced(keypoints):
-
     if keypoints is None or len(keypoints) < 17:
         print("Insufficient number of keypoints")
         return False
@@ -44,7 +46,6 @@ def is_lying_down_advanced(keypoints):
         print(f"Detected torso angle: {angle:.2f} degrees")
 
         horizontal_torso = abs(angle) < 30 or abs(angle) > 150
-
 
         if len(y_values) >= 3:
             x_values = [point[0] for point in key_points]
@@ -97,6 +98,9 @@ def gen_frames():
                 print(f"Error drawing results: {e}")
                 annotated_frame = frame
 
+        redis_client.set('standing_sitting', standing_sitting_count)
+        redis_client.set('lying_down', lying_down_count)
+
         cv2.putText(annotated_frame, f"Standing/Sitting: {standing_sitting_count}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         cv2.putText(annotated_frame, f"Lying down: {lying_down_count}", (10, 70),
@@ -117,6 +121,15 @@ def index():
 def video_feed():
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/counts')
+def counts():
+    standing_sitting = redis_client.get('standing_sitting')
+    lying_down = redis_client.get('lying_down')
+    counts_data = {
+        "standing_sitting": int(standing_sitting.decode()) if standing_sitting else 0,
+        "lying_down": int(lying_down.decode()) if lying_down else 0
+    }
+    return jsonify(counts_data)
+
 if __name__ == '__main__':
     app.run(debug=True)
-
