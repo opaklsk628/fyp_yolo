@@ -3,11 +3,20 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 import math
-import redis
+import psycopg2
 
 app = Flask(__name__)
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+# Global variable to track camera status
+camera_connected = False
+
+# Function to establish a new PostgreSQL connection
+def get_database_connection():
+    conn = psycopg2.connect(
+        dbname="project_database", user="admin",
+        password="zxcv1234", host="localhost", port="5432"
+    )
+    return conn
 
 print("Loading model...")
 model = YOLO("yolo11s-pose.pt")
@@ -32,7 +41,7 @@ def is_lying_down_advanced(keypoints):
             return False
 
         y_values = [point[1] for point in [nose, left_shoulder, right_shoulder, 
-                                             left_hip, right_hip, left_ankle, right_ankle]
+                                           left_hip, right_hip, left_ankle, right_ankle]
                     if point[2] > 0.5]
 
         shoulders_midpoint = [(left_shoulder[0] + right_shoulder[0]) / 2, 
@@ -62,14 +71,48 @@ def is_lying_down_advanced(keypoints):
         return False
 
 def gen_frames():
+    global camera_connected
+    conn = get_database_connection()
+    cur = conn.cursor()
+    
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Unable to open video source")
+        camera_connected = False
+        # Create a larger black image to ensure text fits
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        # Center the text and make it smaller to ensure it fits
+        text = "No camera connected"
+        text_size = cv2.getTextSize(text, font, 1, 2)[0]
+        text_x = (img.shape[1] - text_size[0]) // 2
+        text_y = (img.shape[0] + text_size[1]) // 2
+        cv2.putText(img, text, (text_x, text_y), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
+        ret, buffer = cv2.imencode('.jpg', img)
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         return
+    
+    camera_connected = True
 
     while True:
         success, frame = cap.read()
         if not success:
+            # If camera disconnects during operation
+            camera_connected = False
+            img = np.zeros((480, 640, 3), dtype=np.uint8)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            # Center the text and make it smaller to ensure it fits
+            text = "No camera connected"
+            text_size = cv2.getTextSize(text, font, 1, 2)[0]
+            text_x = (img.shape[1] - text_size[0]) // 2
+            text_y = (img.shape[0] + text_size[1]) // 2
+            cv2.putText(img, text, (text_x, text_y), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
+            ret, buffer = cv2.imencode('.jpg', img)
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             break
 
         results = model(frame)
@@ -98,8 +141,13 @@ def gen_frames():
                 print(f"Error drawing results: {e}")
                 annotated_frame = frame
 
-        redis_client.set('standing_sitting', standing_sitting_count)
-        redis_client.set('lying_down', lying_down_count)
+        # Store counts in PostgreSQL
+        try:
+            cur.execute("INSERT INTO pose_counts (standing_sitting, lying_down) VALUES (%s, %s)", (standing_sitting_count, lying_down_count))
+            conn.commit()
+        except psycopg2.Error as e:
+            print(f"Error executing SQL query: {e}")
+            conn.rollback()
 
         cv2.putText(annotated_frame, f"Standing/Sitting: {standing_sitting_count}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
@@ -112,6 +160,8 @@ def gen_frames():
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
     
     cap.release()
+    cur.close()
+    conn.close()
 
 @app.route('/')
 def index():
@@ -121,15 +171,34 @@ def index():
 def video_feed():
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/camera_status')
+def camera_status():
+    global camera_connected
+    return jsonify({"connected": camera_connected})
+
 @app.route('/counts')
 def counts():
-    standing_sitting = redis_client.get('standing_sitting')
-    lying_down = redis_client.get('lying_down')
-    counts_data = {
-        "standing_sitting": int(standing_sitting.decode()) if standing_sitting else 0,
-        "lying_down": int(lying_down.decode()) if lying_down else 0
-    }
-    return jsonify(counts_data)
+    global camera_connected
+    conn = get_database_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT standing_sitting, lying_down FROM pose_counts ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
+        standing_sitting = row[0] if row else 0
+        lying_down = row[1] if row else 0
+        counts_data = {
+            "standing_sitting": standing_sitting,
+            "lying_down": lying_down,
+            "camera_connected": camera_connected
+        }
+        return jsonify(counts_data)
+    except psycopg2.Error as e:
+        print(f"Error fetching pose counts: {e}")
+        return jsonify({"error": "Unable to fetch pose counts", "camera_connected": camera_connected}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True)
