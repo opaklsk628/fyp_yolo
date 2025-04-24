@@ -1,162 +1,150 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>Real-time Pose Detection</title>
+  <title>即時人體姿態偵測</title>
   <style>
-    body { font-family: Arial, sans-serif; }
-    #counts { margin-top: 10px; }
-    #alert {
-      display: none;
-      padding: 10px;
+    body {
+      font-family: Arial, sans-serif;
       text-align: center;
-      font-size: 20px;
-      font-weight: bold;
-      margin-bottom: 10px;
-      position: relative;
+      background-color: #f0f0f0;
+      margin: 0;
+      padding: 20px;
     }
-    #camera-alert {
-      display: none;
-      padding: 10px;
-      background-color: #f44336;
-      color: white;
-      text-align: center;
-      font-size: 20px;
-      font-weight: bold;
-      margin-bottom: 10px;
+
+    h1 {
+      color: #333;
     }
-    #dismiss-btn {
-      position: absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      padding: 5px 10px;
-      font-size: 14px;
-      cursor: pointer;
-    }
+
     .video-container {
       position: relative;
-      width: 70%;
+      display: inline-block;
+      margin-top: 20px;
     }
+
     .video-overlay {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
+      background-color: rgba(0, 0, 0, 0.6);
+      color: white;
       display: flex;
       justify-content: center;
       align-items: center;
-      background-color: rgba(0, 0, 0, 0.7);
-      color: white;
       font-size: 24px;
+      display: none;
+    }
+
+    #counts {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+
+    #alert {
+      background-color: #ffcccc;
+      color: #a00;
+      padding: 10px;
+      margin: 10px auto;
+      width: 60%;
+      border: 1px solid #a00;
+      display: none;
+    }
+
+    #dismiss-btn {
+      margin-top: 10px;
+      padding: 5px 10px;
+      background-color: #a00;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    #camera-alert {
+      color: red;
       font-weight: bold;
       display: none;
+    }
+
+    .logout {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+    }
+
+    .logout a {
+      text-decoration: none;
+      color: #007BFF;
+      font-weight: bold;
     }
   </style>
 </head>
 <body>
-  <div id="alert">
-    <span id="alert-text"></span>
-    <button id="dismiss-btn" onclick="dismissAlert()">回報錯誤警告</button>
+
+  <!-- 登入使用者與登出link -->
+  <div class="logout">
+    歡迎，{{ session['username'] }}！<a href="{{ url_for('logout') }}">登出</a>
   </div>
-  
-  <div id="camera-alert">No camera connected</div>
 
   <h1>即時人體姿態偵測</h1>
+
+  <!-- 錯誤警告區塊 -->
+  <div id="alert">
+    <span id="alert-text">⚠️ 偵測到異常姿勢！</span><br>
+    <button id="dismiss-btn" onclick="dismissAlert()">回報錯誤警告</button>
+  </div>
+
+  <!-- 鏡頭未連線提示 -->
+  <div id="camera-alert">⚠️ 鏡頭未連線</div>
+
+  <!-- 姿態統計 -->
   <div id="counts">
-    <p>Standing/Sitting: <span id="standing_sitting_count">0</span></p>
-    <p>Lying down: <span id="lying_down_count">0</span></p>
+    <p>站立/坐著人數：<span id="standing_sitting_count">0</span></p>
+    <p>躺下人數：<span id="lying_down_count">0</span></p>
   </div>
-  
+
+  <!-- 影像串流 -->
   <div class="video-container">
-    <img src="{{ url_for('video_feed') }}" width="100%" alt="Video Stream">
-    <div id="video-overlay" class="video-overlay">No camera connected</div>
+    <img src="{{ url_for('video_feed') }}" width="640" height="480" alt="Video Stream">
+    <div id="video-overlay" class="video-overlay">攝影機未連線</div>
   </div>
 
+  <!-- JavaScript -->
   <script>
-    let alertTimer = null;
-    let alertShown = false;
-    let alertTimeStamp = null;
-    let alertDismissed = false;
-    let cameraConnected = true;
-
-    const audio = new Audio("{{ url_for('static', filename='piano-3.wav') }}");
-
-    function formatTime(date) {
-      const pad = (num) => num.toString().padStart(2, '0');
-      const hh = pad(date.getHours());
-      const mm = pad(date.getMinutes());
-      const ss = pad(date.getSeconds());
-      const dd = pad(date.getDate());
-      const MM = pad(date.getMonth() + 1);
-      const yyyy = date.getFullYear();
-      return `${hh}:${mm}:${ss} - ${dd}/${MM}/${yyyy}`;
-    }
-
     function dismissAlert() {
       document.getElementById("alert").style.display = "none";
-      alertDismissed = true;
     }
 
     function updateCounts() {
-      fetch("{{ url_for('counts') }}")
+      fetch("/counts")
         .then(response => response.json())
         .then(data => {
           document.getElementById("standing_sitting_count").textContent = data.standing_sitting;
           document.getElementById("lying_down_count").textContent = data.lying_down;
-          
-          // Check camera status
-          if (cameraConnected !== data.camera_connected) {
-            cameraConnected = data.camera_connected;
-            if (!cameraConnected) {
-              document.getElementById("camera-alert").style.display = "block";
-              document.getElementById("video-overlay").style.display = "flex";
-            } else {
-              document.getElementById("camera-alert").style.display = "none";
-              document.getElementById("video-overlay").style.display = "none";
-            }
+
+          // 顯示警告
+          if (data.lying_down > 0) {
+            document.getElementById("alert").style.display = "block";
+          } else {
+            document.getElementById("alert").style.display = "none";
           }
 
-          if (data.lying_down >= 1 && cameraConnected) {
-            alertDismissed = false; // reset dismiss status
-            if (!alertTimer && !alertShown) {
-              alertTimer = setTimeout(() => {
-                alertTimeStamp = new Date();
-                document.getElementById("alert-text").textContent = `發現有人倒下! 請即救援! (${formatTime(alertTimeStamp)})`;
-                document.getElementById("alert").style.backgroundColor = "red";
-                document.getElementById("alert").style.color = "white";
-                document.getElementById("alert").style.display = "block";
-                document.getElementById("dismiss-btn").style.display = "none";
-                audio.play();  // play sound effect
-                alertShown = true;
-              }, 3000);  // trigger alert if lying down continuously for 3 seconds
-            }
+          // camera狀態
+          if (!data.camera_connected) {
+            document.getElementById("camera-alert").style.display = "block";
+            document.getElementById("video-overlay").style.display = "flex";
           } else {
-            if (alertTimer) {
-              clearTimeout(alertTimer);
-              alertTimer = null;
-            }
-            if (alertShown && !alertDismissed) {
-              document.getElementById("alert-text").textContent = `曾經發現有人倒下! (${formatTime(alertTimeStamp)})`;
-              document.getElementById("alert").style.backgroundColor = "yellow";
-              document.getElementById("alert").style.color = "black";
-              document.getElementById("alert").style.display = "block";
-              document.getElementById("dismiss-btn").style.display = "inline-block";
-              alertShown = false;
-            }
+            document.getElementById("camera-alert").style.display = "none";
+            document.getElementById("video-overlay").style.display = "none";
           }
         })
-        .catch(err => {
-          console.error("Error fetching counts:", err);
-          // Assume camera might be disconnected if we can't fetch data
-          document.getElementById("camera-alert").style.display = "block";
-          document.getElementById("video-overlay").style.display = "flex";
-          cameraConnected = false;
+        .catch(error => {
+          console.error("Error fetching counts:", error);
         });
     }
 
-    setInterval(updateCounts, 1000);
+    setInterval(updateCounts, 1000); // 每秒更新一次
   </script>
 
 </body>
