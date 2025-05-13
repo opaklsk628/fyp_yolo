@@ -1,151 +1,39 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>即時人體姿態偵測</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      background-color: #f0f0f0;
-      margin: 0;
-      padding: 20px;
-    }
-
-    h1 {
-      color: #333;
-    }
-
-    .video-container {
-      position: relative;
-      display: inline-block;
-      margin-top: 20px;
-    }
-
-    .video-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0, 0, 0, 0.6);
-      color: white;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 24px;
-      display: none;
-    }
-
-    #counts {
-      margin-top: 20px;
-      font-size: 18px;
-    }
-
-    #alert {
-      background-color: #ffcccc;
-      color: #a00;
-      padding: 10px;
-      margin: 10px auto;
-      width: 60%;
-      border: 1px solid #a00;
-      display: none;
-    }
-
-    #dismiss-btn {
-      margin-top: 10px;
-      padding: 5px 10px;
-      background-color: #a00;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-
-    #camera-alert {
-      color: red;
-      font-weight: bold;
-      display: none;
-    }
-
-    .logout {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-    }
-
-    .logout a {
-      text-decoration: none;
-      color: #007BFF;
-      font-weight: bold;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <title>即時姿態偵測</title>
 </head>
 <body>
-
-  <!-- 登入使用者與登出link -->
-  <div class="logout">
-    歡迎，{{ session['username'] }}！<a href="{{ url_for('logout') }}">登出</a>
-  </div>
-
-  <h1>即時人體姿態偵測</h1>
-
-  <!-- 錯誤警告區塊 -->
-  <div id="alert">
-    <span id="alert-text">⚠️ 偵測到異常姿勢！</span><br>
-    <button id="dismiss-btn" onclick="dismissAlert()">回報錯誤警告</button>
-  </div>
-
-  <!-- 鏡頭未連線提示 -->
-  <div id="camera-alert">⚠️ 鏡頭未連線</div>
-
-  <!-- 姿態統計 -->
-  <div id="counts">
-    <p>站立/坐著人數：<span id="standing_sitting_count">0</span></p>
-    <p>躺下人數：<span id="lying_down_count">0</span></p>
-  </div>
-
-  <!-- 影像串流 -->
-  <div class="video-container">
-    <img src="{{ url_for('video_feed') }}" width="640" height="480" alt="Video Stream">
-    <div id="video-overlay" class="video-overlay">攝影機未連線</div>
-  </div>
-
-  <!-- JavaScript -->
-  <script>
-    function dismissAlert() {
-      document.getElementById("alert").style.display = "none";
-    }
-
-    function updateCounts() {
-      fetch("/counts")
-        .then(response => response.json())
-        .then(data => {
-          document.getElementById("standing_sitting_count").textContent = data.standing_sitting;
-          document.getElementById("lying_down_count").textContent = data.lying_down;
-
-          // 顯示警告
-          if (data.lying_down > 0) {
-            document.getElementById("alert").style.display = "block";
-          } else {
-            document.getElementById("alert").style.display = "none";
-          }
-
-          // camera狀態
-          if (!data.camera_connected) {
-            document.getElementById("camera-alert").style.display = "block";
-            document.getElementById("video-overlay").style.display = "flex";
-          } else {
-            document.getElementById("camera-alert").style.display = "none";
-            document.getElementById("video-overlay").style.display = "none";
-          }
-        })
-        .catch(error => {
-          console.error("Error fetching counts:", error);
-        });
-    }
-
-    setInterval(updateCounts, 1000); // 每秒更新一次
-  </script>
-
+    <table width="100%">
+        <tr>
+            <td align="center">
+                <h1>即時姿態偵測</h1>
+                <div>
+                    <span style="margin: 0 10px;"><a href="{{ url_for('index') }}">首頁</a></span>
+                    <span style="margin: 0 10px;"><a href="{{ url_for('fall_records') }}">查看跌倒記錄</a></span>
+                    <span style="margin: 0 10px;"><a href="{{ url_for('logout') }}">登出</a></span>
+                </div>
+                <div>
+                    <img src="{{ url_for('video_feed') }}" width="640" height="480">
+                    <p>站立/坐著人數：<span id="standing_sitting">0</span></p>
+                    <p>躺下人數：<span id="lying_down">0</span></p>
+                    <div id="fall_alert" style="display: none; color: red; font-weight: bold; font-size: 20px;">警告：偵測到跌倒！</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+    <script>
+        setInterval(function() {
+            fetch('/counts')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('standing_sitting').innerText = data.standing_sitting;
+                    document.getElementById('lying_down').innerText = data.lying_down;
+                    document.getElementById('fall_alert').style.display = data.fall_detected ? 'block' : 'none';
+                });
+        }, 1000);
+    </script>
 </body>
 </html>
+
