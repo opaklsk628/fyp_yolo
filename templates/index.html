@@ -5,35 +5,46 @@
     <title>即時姿態偵測</title>
 </head>
 <body>
-    <table width="100%">
-        <tr>
-            <td align="center">
-                <h1>即時姿態偵測</h1>
-                <div>
-                    <span style="margin: 0 10px;"><a href="{{ url_for('index') }}">首頁</a></span>
-                    <span style="margin: 0 10px;"><a href="{{ url_for('fall_records') }}">查看跌倒記錄</a></span>
-                    <span style="margin: 0 10px;"><a href="{{ url_for('logout') }}">登出</a></span>
+<table width="100%">
+    <tr>
+        <td align="center">
+            <h1>即時姿態偵測</h1>
+
+
+            <div>
+                <span style="margin:0 10px;"><a href="{{ url_for('index') }}">首頁</a></span>
+                <span style="margin:0 10px;"><a href="{{ url_for('fall_records') }}">查看跌倒記錄</a></span>
+                {% if session.get('is_admin') %}
+                <span style="margin:0 10px;"><a href="{{ url_for('settings') }}">設定</a></span>
+                {% endif %}
+                <span style="margin:0 10px;"><a href="{{ url_for('logout') }}">登出</a></span>
+            </div>
+
+            <div>
+                <img src="{{ url_for('video_feed') }}" width="640" height="480">
+                <p>站立/坐著人數：<span id="standing_sitting">0</span></p>
+                <p>躺下人數：<span id="lying_down">0</span></p>
+                <div id="fall_alert"
+                     style="display:none;color:red;font-weight:bold;font-size:20px;">
+                     警告：偵測到跌倒！
                 </div>
-                <div>
-                    <img src="{{ url_for('video_feed') }}" width="640" height="480">
-                    <p>站立/坐著人數：<span id="standing_sitting">0</span></p>
-                    <p>躺下人數：<span id="lying_down">0</span></p>
-                    <div id="fall_alert" style="display: none; color: red; font-weight: bold; font-size: 20px;">警告：偵測到跌倒！</div>
-                </div>
-            </td>
-        </tr>
-    </table>
-    <script>
-        setInterval(function() {
-            fetch('/counts')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('standing_sitting').innerText = data.standing_sitting;
-                    document.getElementById('lying_down').innerText = data.lying_down;
-                    document.getElementById('fall_alert').style.display = data.fall_detected ? 'block' : 'none';
-                });
-        }, 1000);
-    </script>
+            </div>
+        </td>
+    </tr>
+</table>
+
+<script>
+setInterval(function () {
+    fetch('/counts')
+        .then(resp => resp.json())
+        .then(data => {
+            document.getElementById('standing_sitting').innerText = data.standing_sitting;
+            document.getElementById('lying_down').innerText = data.lying_down;
+            document.getElementById('fall_alert').style.display =
+                data.fall_detected ? 'block' : 'none';
+        });
+}, 1000);
+</script>
 </body>
 </html>
 

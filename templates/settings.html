@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>設定</title>
+</head>
+<body>
+<h1>設定</h1>
+
+<a href="{{ url_for('index') }}">回首頁</a> |
+<a href="{{ url_for('logout') }}">登出</a>
+<br><br>
+
+<table border="1" cellpadding="6" cellspacing="0">
+<thead>
+<tr><th>ID</th><th>帳號</th><th>權限</th><th>操作</th></tr>
+</thead>
+<tbody>
+{% for u in users %}
+<tr>
+  <td>{{ u[0] }}</td>
+  <td>{{ u[1] }}</td>
+  <td>{{ 'admin' if u[2] else 'user' }}</td>
+  <td>
+    <form action="{{ url_for('reset_pw', uid=u[0]) }}"
+          method="post" style="display:inline;">
+        <button>重設密碼</button>
+    </form>
+
+    <form action="{{ url_for('toggle_admin', uid=u[0]) }}"
+          method="post" style="display:inline;">
+        <button>{{ '設為一般使用者' if u[2] else '設為管理員' }}</button>
+    </form>
+
+    {% if u[0] != session.get('user_id') %}
+    <form action="{{ url_for('delete_user', uid=u[0]) }}"
+          method="post" style="display:inline;"
+          onsubmit="return confirm('確定刪除帳號？');">
+        <button>刪除</button>
+    </form>
+    {% endif %}
+  </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <ul>
+      {% for m in messages %}
+        <li style="color:green;">{{ m }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+</body>
+</html>
+
