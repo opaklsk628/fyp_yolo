@@ -1,432 +1,511 @@
-from flask import (
-    Flask, render_template, request, redirect, url_for,
-    session, flash, Response, jsonify, abort
-)
-from werkzeug.security import generate_password_hash, check_password_hash
-from ultralytics import YOLO
 import cv2
 import numpy as np
-import math
-import psycopg2
-import logging
+import mediapipe as mp
+from flask import Flask, render_template, Response, redirect, url_for, request, flash, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 import os
-import time
-import sys
-from threading import Thread
-from functools import wraps
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+import uuid
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
+app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:zxcv1234@localhost/project_database'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+db = SQLAlchemy(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# MediaPipe setup
+mp_pose = mp.solutions.pose
+mp_drawing = mp.solutions.drawing_utils
+pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+# Global variables
+camera = None
+pose_counts = {'standing/sitting': 0, 'lying_down': 0}
+fall_detected = False
 camera_connected = False
-current_standing_sitting = 0
-current_lying_down = 0
-fall_detected = False  # 全局變數標記是否偵測到跌倒
+lying_down_frames = 0
+LYING_DOWN_THRESHOLD = 30  # frames before detecting as fall
 
-# database
-def get_database_connection():
-    """回傳 PostgreSQL 連線（失敗回 None）。"""
-    try:
-        return psycopg2.connect(
-            dbname="project_database",
-            user="admin",
-            password="zxcv1234",
-            host="localhost",
-            port="5432"
-        )
-    except Exception as e:
-        logger.error(f"資料庫連線失敗: {e}")
-        return None
+# Create directories
+os.makedirs('static/log_photo', exist_ok=True)
 
+# Database Models
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'  # 使用原始的 users 表
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)  # 注意：原始表用 password_hash
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    session_token = db.Column(db.String(100), nullable=True)
+    
+    # 添加 password 屬性以兼容
+    @property
+    def password(self):
+        return self.password_hash
+    
+    @password.setter
+    def password(self, value):
+        self.password_hash = value
 
-def try_create_tables():
-    conn = get_database_connection()
-    if not conn:
-        return False
+    def __repr__(self):
+        return f'<User {self.username}>'
 
-    cur = conn.cursor()
-    try:
-        # users
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(100) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        ''')
+class FallRecord(db.Model):
+    __tablename__ = 'fall_records'  # 使用原始的 fall_records 表
+    id = db.Column(db.Integer, primary_key=True)
+    detection_time = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    lying_down_count = db.Column(db.Integer, nullable=False)
+    image_path = db.Column(db.String(200), nullable=False)
 
-        # fall_records
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS fall_records (
-                id SERIAL PRIMARY KEY,
-                detection_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                lying_down_count INTEGER DEFAULT 0,
-                image_path VARCHAR(255) NOT NULL
-            );
-        """)
+    def __repr__(self):
+        return f'<FallRecord {self.detection_time}>'
 
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"初始化表格錯誤: {e}")
-        return False
-    finally:
-        cur.close()
-        conn.close()
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
-    return True
+# Pose detection functions
+def classify_pose(landmarks):
+    """Classify pose as standing/sitting or lying down"""
+    if not landmarks:
+        return "unknown"
+    
+    # Get key points
+    nose = landmarks[mp_pose.PoseLandmark.NOSE.value]
+    left_hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP.value]
+    right_hip = landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value]
+    left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value]
+    right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+    
+    # Calculate average positions
+    hip_y = (left_hip.y + right_hip.y) / 2
+    shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
+    
+    # Check if person is lying down (horizontal position)
+    # In lying position, the y-difference between shoulders and hips is small
+    vertical_diff = abs(shoulder_y - hip_y)
+    
+    # Also check the overall body angle
+    shoulder_x = (left_shoulder.x + right_shoulder.x) / 2
+    hip_x = (left_hip.x + right_hip.x) / 2
+    horizontal_diff = abs(shoulder_x - hip_x)
+    
+    # If horizontal difference is large and vertical difference is small, person is lying
+    if horizontal_diff > vertical_diff * 2:
+        return "lying_down"
+    else:
+        return "standing/sitting"
 
-print("Loading model…")
-model = YOLO("yolo11s-pose.pt")
-print("Model loaded")
-
-# defined admin
-def admin_required(f):
-    @wraps(f)
-    def wrapped(*args, **kwargs):
-        if not session.get('is_admin'):
-            abort(403)
-        return f(*args, **kwargs)
-    return wrapped
-
-# 判斷人體骨架是否躺下
-def is_lying_down_advanced(keypoints):
-    if keypoints is None or len(keypoints) < 17:
-        return False
-    try:
-        nose           = keypoints[0]
-        left_shoulder  = keypoints[5]
-        right_shoulder = keypoints[6]
-        left_hip       = keypoints[11]
-        right_hip      = keypoints[12]
-        left_ankle     = keypoints[15]
-        right_ankle    = keypoints[16]
-
-        key_points = [left_shoulder, right_shoulder, left_hip, right_hip]
-        if not all(p[2] > 0.5 for p in key_points):
-            return False
-
-        y_vals = [p[1] for p in
-                  [nose, left_shoulder, right_shoulder,
-                   left_hip, right_hip, left_ankle, right_ankle]
-                  if p[2] > 0.5]
-
-        shoulders_mid = [(left_shoulder[0] + right_shoulder[0]) / 2,
-                         (left_shoulder[1] + right_shoulder[1]) / 2]
-        hips_mid = [(left_hip[0] + right_hip[0]) / 2,
-                    (left_hip[1] + right_hip[1]) / 2]
-
-        torso_vec = [hips_mid[0] - shoulders_mid[0],
-                     hips_mid[1] - shoulders_mid[1]]
-        angle = math.degrees(math.atan2(torso_vec[1], torso_vec[0]))
-        horizontal = abs(angle) < 30 or abs(angle) > 150
-
-        if len(y_vals) >= 3:
-            x_vals = [p[0] for p in key_points]
-            y_range = max(y_vals) - min(y_vals)
-            x_range = max(x_vals) - min(x_vals)
-            return horizontal and (x_range > y_range * 1.5)
-        return horizontal
-    except:
-        return False
-
-# 儲存跌倒紀錄, cap圖+寫入database
-def save_fall_record(image_path, frame, lying_down_count):
-    try:
-        cv2.imwrite(image_path, frame)
-
-        conn = get_database_connection()
-        if not conn:
-            logger.error("無法保存跌倒記錄,連線失敗")
-            return
-        cur = conn.cursor()
-        try:
-            filename = os.path.basename(image_path)
-            rel_path = f"log_photo/{filename}"
-            cur.execute(
-                "INSERT INTO fall_records (image_path, lying_down_count) "
-                "VALUES (%s, %s)",
-                (rel_path, lying_down_count)
-            )
-            conn.commit()
-            logger.info(f"已保存跌倒記錄 ({lying_down_count}) {rel_path}")
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"保存跌倒記錄失敗: {e}")
-        finally:
-            cur.close(); conn.close()
-    except Exception as e:
-        logger.error(f"save_fall_record 例外: {e}")
-
-# camera設定
-def gen_frames():
-    global camera_connected, current_standing_sitting, current_lying_down, fall_detected
-
-    if not os.path.exists('static/log_photo'):
-        os.makedirs('static/log_photo')
-
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        camera_connected = False
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
-        cv2.putText(
-            img, "No camera connected",
-            (100, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2
-        )
-        _, buf = cv2.imencode('.jpg', img)
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' +
-               buf.tobytes() + b'\r\n')
-        return
-
+def generate_frames():
+    global camera, pose_counts, fall_detected, camera_connected, lying_down_frames
+    
+    camera = cv2.VideoCapture(0)
     camera_connected = True
-	
-    # 防止太頻繁保存
-    last_save_time = 0
-    save_interval  = 3  # 至少間隔3秒才保存新記錄
-
+    
     while True:
-        ok, frame = cap.read()
-        if not ok:
+        success, frame = camera.read()
+        if not success:
             camera_connected = False
             break
+        
+        # Convert to RGB for MediaPipe
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image.flags.writeable = False
+        
+        # Process pose
+        results = pose.process(image)
+        
+        # Convert back to BGR for OpenCV
+        image.flags.writeable = True
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        
+        # Reset counts for this frame
+        pose_counts = {'standing/sitting': 0, 'lying_down': 0}
+        
+        if results.pose_landmarks:
+            # Draw pose
+            mp_drawing.draw_landmarks(
+                image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+                mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2)
+            )
+            
+            # Classify pose
+            pose_type = classify_pose(results.pose_landmarks.landmark)
+            pose_counts[pose_type] = pose_counts.get(pose_type, 0) + 1
+            
+            # Check for fall detection
+            if pose_type == "lying_down":
+                lying_down_frames += 1
+                if lying_down_frames >= LYING_DOWN_THRESHOLD and not fall_detected:
+                    fall_detected = True
+                    # Save fall image
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"fall_{timestamp}.jpg"
+                    filepath = os.path.join('static', 'log_photo', filename)
+                    cv2.imwrite(filepath, frame)
+                    
+                    # Save to database
+                    fall_record = FallRecord(
+                        lying_down_count=pose_counts['lying_down'],
+                        image_path=f"log_photo/{filename}"
+                    )
+                    db.session.add(fall_record)
+                    db.session.commit()
+            else:
+                lying_down_frames = 0
+                fall_detected = False
+            
+            # Display pose type on frame
+            cv2.putText(image, f"Pose: {pose_type}", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(image, f"Count: {pose_counts[pose_type]}", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            if fall_detected:
+                cv2.putText(image, "FALL DETECTED!", (10, 90), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+        
+        ret, buffer = cv2.imencode('.jpg', image)
+        frame = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-        results = model(frame)
-        standing_sitting = 0
-        lying_down       = 0
-        annotated = frame.copy()
-
-        for res in results:
-            if res.keypoints is not None and hasattr(res.keypoints, 'data'):
-                for idx in range(len(res.keypoints.data)):
-                    kpt = res.keypoints.data[idx].cpu().numpy()
-                    if is_lying_down_advanced(kpt):
-                        lying_down += 1
-                    else:
-                        standing_sitting += 1
-            try:
-                annotated = res.plot()
-            except:
-                pass
-
-        current_standing_sitting = standing_sitting
-        current_lying_down       = lying_down
-
-        now = time.time()
-        if lying_down > 0 and (now - last_save_time) >= save_interval:
-            fall_detected = True
-            last_save_time = now
-            fname = f"fall_{int(now)}.jpg"
-            path  = os.path.join('static/log_photo', fname)
-            Thread(target=save_fall_record,
-                   args=(path, frame.copy(), lying_down)).start()
-        else:
-            fall_detected = (lying_down > 0)
-
-        cv2.putText(annotated, f"Standing/Sitting: {standing_sitting}",
-                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(annotated, f"Lying down: {lying_down}",
-                    (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-        _, buf = cv2.imencode('.jpg', annotated)
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' +
-               buf.tobytes() + b'\r\n')
-
-    cap.release()
-
-# webpage route
+# Routes
 @app.route('/')
 def index():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    return render_template('index.html')
-
-
-@app.route('/video_feed')
-def video_feed():
-    return Response(gen_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
-
-@app.route('/counts')
-def counts():
-    return jsonify({
-        "standing_sitting": current_standing_sitting,
-        "lying_down": current_lying_down,
-        "fall_detected": fall_detected,
-        "camera_connected": camera_connected
-    })
-
-# register account
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        h_pw     = generate_password_hash(password)
-
-        conn = get_database_connection()
-        if not conn:
-            flash('資料庫錯誤，稍後再試')
-            return render_template('register.html')
-
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
-                (username, h_pw)
-            )
-            conn.commit()
-            flash('註冊完成，請登入')
-            return redirect(url_for('login'))
-        except psycopg2.errors.UniqueViolation:
-            conn.rollback()
-            flash('帳號已存在')
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"註冊錯誤: {e}")
-            flash('發生錯誤，稍後再試')
-        finally:
-            cur.close(); conn.close()
-
-    return render_template('register.html')
-
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-
-        conn = get_database_connection()
-        if not conn:
-            flash('資料庫錯誤，稍後再試')
-            return render_template('login.html')
-
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT id, password_hash, is_admin FROM users WHERE username=%s",
-            (username,)
-        )
-        row = cur.fetchone()
-        cur.close(); conn.close()
-
-        if row and check_password_hash(row[1], password):
-            session['user_id']  = row[0]
-            session['username'] = username
-            session['is_admin'] = row[2]
-            return redirect(url_for('index'))
-        flash('帳號或密碼錯誤')
-
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user and check_password_hash(user.password_hash, password):
+            login_user(user)
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password')
+    
     return render_template('login.html')
 
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists')
+            return redirect(url_for('register'))
+        
+        # First user becomes admin
+        is_first_user = User.query.count() == 0
+        
+        user = User(
+            username=username,
+            password_hash=generate_password_hash(password),
+            is_admin=is_first_user
+        )
+        
+        db.session.add(user)
+        db.session.commit()
+        
+        flash('Registration successful')
+        return redirect(url_for('login'))
+    
+    return render_template('register.html')
 
 @app.route('/logout')
+@login_required
 def logout():
-    session.clear()
+    logout_user()
     return redirect(url_for('login'))
 
-# admin setting page
-@app.route('/settings')
-@admin_required
-def settings():
-    conn = get_database_connection()
-    cur  = conn.cursor()
-    cur.execute("SELECT id, username, is_admin FROM users ORDER BY id")
-    users = cur.fetchall()
-    cur.close(); conn.close()
-    return render_template('settings.html', users=users)
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return render_template('dashboard.html')
 
+@app.route('/monitor')
+@login_required
+def monitor():
+    return render_template('monitor.html')
 
-@app.route('/settings/reset_pw/<int:uid>', methods=['POST'])
-@admin_required
-def reset_pw(uid):
-    new_hash = generate_password_hash('123456')
-    conn = get_database_connection()
-    cur  = conn.cursor()
-    cur.execute("UPDATE users SET password_hash=%s WHERE id=%s",
-                (new_hash, uid))
-    conn.commit(); cur.close(); conn.close()
-    flash('密碼已重設為123456')
-    return redirect(url_for('settings'))
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(),
+                   mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/counts')
+def get_counts():
+    global pose_counts, fall_detected, camera_connected
+    
+    return jsonify({
+        'standing_sitting': pose_counts.get('standing/sitting', 0),
+        'lying_down': pose_counts.get('lying_down', 0),
+        'fall_detected': fall_detected,
+        'camera_connected': camera_connected
+    })
 
-@app.route('/settings/toggle_admin/<int:uid>', methods=['POST'])
-@admin_required
-def toggle_admin(uid):
-    conn = get_database_connection()
-    cur  = conn.cursor()
-    cur.execute("UPDATE users SET is_admin = NOT is_admin WHERE id=%s", (uid,))
-    conn.commit(); cur.close(); conn.close()
-    flash('權限已更改')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/delete/<int:uid>', methods=['POST'])
-@admin_required
-def delete_user(uid):
-    if uid == session.get('user_id'):
-        flash('不能刪除自己')
-        return redirect(url_for('settings'))
-
-    conn = get_database_connection()
-    cur  = conn.cursor()
-    cur.execute("DELETE FROM users WHERE id=%s", (uid,))
-    conn.commit(); cur.close(); conn.close()
-    flash('帳號已刪除')
-    return redirect(url_for('settings'))
-
-# 跌倒記錄
 @app.route('/fall_records')
+@login_required
 def fall_records():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-
-    conn = get_database_connection()
-    if not conn:
-        flash('無法連線資料庫')
-        return render_template('fall_records.html', records=[])
-
-    records = []
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "SELECT detection_time, lying_down_count, image_path "
-            "FROM fall_records ORDER BY detection_time DESC"
-        )
-        for dt, cnt, img in cur.fetchall():
-            if img.startswith('static/'):
-                img = img.split('/')[-1]
-            if not img.startswith('log_photo/'):
-                img = f"log_photo/{img}"
-            records.append((dt, cnt, img))
-    except Exception as e:
-        logger.error(f"讀取跌倒記錄失敗: {e}")
-        flash('讀取記錄失敗')
-    finally:
-        cur.close(); conn.close()
-
+    records = FallRecord.query.order_by(FallRecord.detection_time.desc()).all()
     return render_template('fall_records.html', records=records)
 
-# 啟動前檢查
-def init_app():
-    if not get_database_connection():
-        logger.critical('資料庫連線失敗，程式終止')
-        sys.exit(1)
-    if not try_create_tables():
-        logger.critical('表格初始化失敗，程式終止')
-        sys.exit(1)
-    logger.info('資料庫就緒')
+@app.route('/settings')
+@login_required
+def settings():
+    if not current_user.is_admin:
+        flash('Admin access required')
+        return redirect(url_for('dashboard'))
+    
+    users = User.query.all()
+    return render_template('settings.html', users=users)
 
-init_app()
+# API endpoints for mobile app
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """Mobile app login endpoint"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({'success': False, 'message': 'Username and password required'}), 400
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user and check_password_hash(user.password_hash, password):
+            # Create session token
+            session_token = str(uuid.uuid4())
+            user.session_token = session_token
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'is_admin': user.is_admin,
+                    'session_token': session_token
+                }
+            })
+        else:
+            return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/register', methods=['POST'])
+def api_register():
+    """Mobile app registration endpoint"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({'success': False, 'message': 'Username and password required'}), 400
+        
+        # Check if user exists
+        if User.query.filter_by(username=username).first():
+            return jsonify({'success': False, 'message': 'Username already exists'}), 409
+        
+        # Check if this is the first user (make them admin)
+        is_first_user = User.query.count() == 0
+        
+        # Create new user
+        hashed_password = generate_password_hash(password)
+        new_user = User(
+            username=username,
+            password_hash=hashed_password,
+            is_admin=is_first_user
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Registration successful',
+            'user': {
+                'id': new_user.id,
+                'username': new_user.username,
+                'is_admin': new_user.is_admin
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/users', methods=['GET'])
+def api_get_users():
+    """Get all users (admin only)"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'message': 'No authorization token'}), 401
+    
+    token = auth_header.split(' ')[1]
+    user = User.query.filter_by(session_token=token).first()
+    
+    if not user or not user.is_admin:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    try:
+        users = User.query.all()
+        return jsonify({
+            'success': True,
+            'users': [{
+                'id': user.id,
+                'username': user.username,
+                'is_admin': user.is_admin
+            } for user in users]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/users/<int:user_id>/toggle_admin', methods=['POST'])
+def api_toggle_admin(user_id):
+    """Toggle admin status (admin only)"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'message': 'No authorization token'}), 401
+    
+    token = auth_header.split(' ')[1]
+    current_user = User.query.filter_by(session_token=token).first()
+    
+    if not current_user or not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'success': False, 'message': 'User not found'}), 404
+        
+        user.is_admin = not user.is_admin
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Admin status updated',
+            'is_admin': user.is_admin
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/fall_records', methods=['GET'])
+def api_fall_records():
+    """Get fall records in JSON format"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'message': 'No authorization token'}), 401
+    
+    try:
+        records = FallRecord.query.order_by(FallRecord.detection_time.desc()).all()
+        return jsonify({
+            'success': True,
+            'records': [{
+                'id': record.id,
+                'detection_time': record.detection_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'lying_down_count': record.lying_down_count,
+                'image_path': record.image_path
+            } for record in records]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# Admin functions (web interface)
+@app.route('/settings/reset_pw/<int:user_id>', methods=['POST'])
+@login_required
+def reset_password(user_id):
+    if not current_user.is_admin:
+        return redirect(url_for('dashboard'))
+    
+    user = User.query.get(user_id)
+    if user:
+        user.password_hash = generate_password_hash('123456')
+        db.session.commit()
+        flash(f'Password reset for {user.username}')
+    
+    return redirect(url_for('settings'))
+
+@app.route('/settings/toggle_admin/<int:user_id>', methods=['POST'])
+@login_required
+def toggle_admin(user_id):
+    if not current_user.is_admin:
+        return redirect(url_for('dashboard'))
+    
+    user = User.query.get(user_id)
+    if user and user.id != current_user.id:
+        user.is_admin = not user.is_admin
+        db.session.commit()
+        flash(f'Admin status toggled for {user.username}')
+    
+    return redirect(url_for('settings'))
+
+@app.route('/settings/delete/<int:user_id>', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    if not current_user.is_admin:
+        return redirect(url_for('dashboard'))
+    
+    user = User.query.get(user_id)
+    if user and user.id != current_user.id:
+        db.session.delete(user)
+        db.session.commit()
+        flash(f'User {user.username} deleted')
+    
+    return redirect(url_for('settings'))
+
+@app.route('/fall_records/delete/<int:record_id>', methods=['POST'])
+@login_required
+def delete_fall_record(record_id):
+    if not current_user.is_admin:
+        return redirect(url_for('fall_records'))
+    
+    record = FallRecord.query.get(record_id)
+    if record:
+        # Delete image file
+        image_path = os.path.join('static', record.image_path)
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        
+        db.session.delete(record)
+        db.session.commit()
+        flash('Record deleted')
+    
+    return redirect(url_for('fall_records'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
-
+    with app.app_context():
+        # 不要使用 create_all()，因為表已經存在
+        # db.create_all()
+        
+        # 檢查是否需要添加 session_token 欄位
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        columns = [c['name'] for c in inspector.get_columns('users')]
+        
+        if 'session_token' not in columns:
+            db.engine.execute('ALTER TABLE users ADD COLUMN session_token VARCHAR(100)')
+            print("Added session_token column to users table")
+        
+        print("Using existing database tables")
+        print(f"Existing users: {User.query.count()}")
+    
+    app.run(host='0.0.0.0', port=5000, debug=True)

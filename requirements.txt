@@ -1,0 +1,8 @@
+flask==2.3.2
+flask-sqlalchemy==3.0.5
+flask-login==0.6.2
+flask-migrate==4.0.4
+psycopg2-binary==2.9.7
+opencv-python==4.8.0.76
+mediapipe==0.10.3
+werkzeug==2.3.6

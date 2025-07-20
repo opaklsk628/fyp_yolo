@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Monitoring - Heatstroke Detection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .navbar {
+            background-color: #333;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .navbar h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .navbar a {
+            color: white;
+            text-decoration: none;
+            margin: 0 10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        .navbar a:hover {
+            background-color: #555;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 20px;
+            text-align: center;
+        }
+        .monitoring-section {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .video-container {
+            margin: 20px auto;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            display: inline-block;
+        }
+        .stats-container {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .stat-box {
+            background-color: #f8f9fa;
+            padding: 20px 30px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            min-width: 150px;
+        }
+        .stat-box h3 {
+            margin: 0;
+            color: #495057;
+            font-size: 16px;
+            font-weight: normal;
+        }
+        .stat-box .value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #007bff;
+            margin: 10px 0;
+        }
+        #fall_alert {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px auto;
+            max-width: 600px;
+            font-size: 20px;
+            font-weight: bold;
+            border: 1px solid #f5c6cb;
+            animation: pulse 1s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+        .camera-status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .camera-connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .camera-disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>Real-time Posture Detection</h1>
+        <div>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('monitor') }}">Monitor</a>
+            <a href="{{ url_for('fall_records') }}">Fall Records</a>
+            {% if current_user.is_admin %}
+            <a href="{{ url_for('settings') }}">Settings</a>
+            {% endif %}
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="monitoring-section">
+            <h2>Real-time Monitoring (Detecting Heatstroke)</h2>
+            
+            <div id="camera_status" class="camera-status camera-connected">
+                Camera: Connected
+            </div>
+
+            <div class="video-container">
+                <img src="{{ url_for('video_feed') }}" width="640" height="480" alt="Live Video Feed">
+            </div>
+
+            <div class="stats-container">
+                <div class="stat-box">
+                    <h3>Standing/Sitting</h3>
+                    <div class="value" id="standing_sitting">0</div>
+                </div>
+                <div class="stat-box">
+                    <h3>Lying Down</h3>
+                    <div class="value" id="lying_down">0</div>
+                </div>
+            </div>
+
+            <div id="fall_alert" style="display:none;">
+                ⚠️ WARNING: Fall Detected!
+            </div>
+        </div>
+    </div>
+
+    <script>
+    setInterval(function() {
+        fetch('/counts')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('standing_sitting').innerText = data.standing_sitting;
+                document.getElementById('lying_down').innerText = data.lying_down;
+                
+                // Update fall alert
+                const fallAlert = document.getElementById('fall_alert');
+                fallAlert.style.display = data.fall_detected ? 'block' : 'none';
+                
+                // Update camera status
+                const cameraStatus = document.getElementById('camera_status');
+                if (data.camera_connected) {
+                    cameraStatus.className = 'camera-status camera-connected';
+                    cameraStatus.innerText = 'Camera: Connected';
+                } else {
+                    cameraStatus.className = 'camera-status camera-disconnected';
+                    cameraStatus.innerText = 'Camera: Disconnected';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching counts:', error);
+            });
+    }, 1000);
+    </script>
+</body>
+</html>
