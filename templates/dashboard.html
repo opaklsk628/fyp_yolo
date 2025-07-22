@@ -108,6 +108,95 @@
             margin-bottom: 20px;
             text-align: center;
         }
+        
+        /* Weather Section */
+        .weather-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .weather-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        
+        .weather-header h3 {
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .current-weather {
+            font-size: 48px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .weather-info {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .weather-info-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .weather-warnings {
+            background-color: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        
+        .weather-warning-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: rgba(255, 193, 7, 0.3);
+            border-radius: 5px;
+        }
+        
+        .forecast-container {
+            display: flex;
+            gap: 15px;
+            overflow-x: auto;
+            padding: 10px 0;
+            margin-top: 20px;
+        }
+        
+        .forecast-day {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            min-width: 120px;
+            text-align: center;
+        }
+        
+        .forecast-day .date {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .forecast-day .temp {
+            font-size: 18px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        .forecast-day .weather {
+            font-size: 12px;
+            opacity: 0.9;
+        }
     </style>
 </head>
 <body>
@@ -125,6 +214,53 @@
     </div>
 
     <div class="container">
+        <!-- Weather Section -->
+        {% if weather %}
+        <div class="weather-section">
+            <div class="weather-header">
+                <h3>🌤️ 香港天氣 - Hong Kong Weather</h3>
+                <div style="font-size: 14px; opacity: 0.8;">資料來源：香港天文台</div>
+            </div>
+            
+            {% if weather.current %}
+            <div class="current-weather">
+                {{ weather.current.temperature }}°C
+            </div>
+            <div class="weather-info">
+                <div class="weather-info-item">
+                    <span>💧</span>
+                    <span>濕度: {{ weather.current.humidity }}%</span>
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if weather.warnings %}
+            <div class="weather-warnings">
+                <h4 style="margin: 0 0 10px 0;">⚠️ 生效中的天氣警告</h4>
+                {% for warning in weather.warnings %}
+                <div class="weather-warning-item">
+                    <span>⚠️</span>
+                    <span>{{ warning.name }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            {% if weather.forecast %}
+            <h4 style="margin: 20px 0 10px 0;">7天天氣預報</h4>
+            <div class="forecast-container">
+                {% for day in weather.forecast %}
+                <div class="forecast-day">
+                    <div class="date">{{ day.week }}</div>
+                    <div class="temp">{{ day.min_temp }}-{{ day.max_temp }}°C</div>
+                    <div class="weather">{{ day.weather[:20] }}...</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="welcome-box">
             <h2>Welcome to Heatstroke Detection System</h2>
             <div class="user-info">

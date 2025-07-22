@@ -97,6 +97,10 @@
         button.delete:hover {
             background:#c82333;
         }
+        .location-info {
+            color: #666;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -129,6 +133,7 @@
         <thead>
         <tr>
             <th>Detection Time</th>
+            <th>Location</th>
             <th>Lying Down Count</th>
             <th>Image</th>
             {% if current_user.is_admin %}
@@ -140,6 +145,7 @@
         {% for record in records %}
         <tr>
             <td>{{ record.detection_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td class="location-info">G/F Lobby Cam1</td>
             <td>{{ record.lying_down_count }}</td>
             <td>
                 {% if record.image_path %}
@@ -170,3 +176,5 @@
 </div>
 </body>
 </html>
+
+
