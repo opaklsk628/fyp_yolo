@@ -2,18 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>註冊</title>
+    <title>Register</title>
 </head>
 <body>
-    <h1>註冊</h1>
+    <h1>Register</h1>
     <form method="POST">
-        <label for="username">帳號：</label>
+        <label for="username">Account：</label>
         <input type="text" id="username" name="username" required><br>
-        <label for="password">密碼：</label>
+        <label for="password">Password：</label>
         <input type="password" id="password" name="password" required><br>
-        <input type="submit" value="註冊">
+        <input type="submit" value="Register">
     </form>
-    <a href="{{ url_for('login') }}">登入</a>
+    <a href="{{ url_for('login') }}">Login</a>
     {% with messages = get_flashed_messages() %}
         {% if messages %}
             <ul>
