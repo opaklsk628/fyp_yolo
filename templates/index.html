@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real-time posture detection(Detecting Heatstroke)</title>
+</head>
+<body>
+<table width="100%">
+    <tr>
+        <td align="center">
+            <h1>Real-time posture detection(Detecting Heatstroke)</h1>
+
+
+            <div>
+                <span style="margin:0 10px;"><a href="{{ url_for('index') }}">Home</a></span>
+                <span style="margin:0 10px;"><a href="{{ url_for('fall_records') }}">Fall Record</a></span>
+                {% if session.get('is_admin') %}
+                <span style="margin:0 10px;"><a href="{{ url_for('settings') }}">Setting</a></span>
+                {% endif %}
+                <span style="margin:0 10px;"><a href="{{ url_for('logout') }}">Logout</a></span>
+            </div>
+
+            <div>
+                <img src="{{ url_for('video_feed') }}" width="640" height="480">
+                <p>Standing/Sitting：<span id="standing_sitting">0</span></p>
+                <p>Number of lying down：<span id="lying_down">0</span></p>
+                <div id="fall_alert"
+                     style="display:none;color:red;font-weight:bold;font-size:20px;">
+                     Warning: Fall detected!
+                </div>
+            </div>
+        </td>
+    </tr>
+</table>
+
+<script>
+setInterval(function () {
+    fetch('/counts')
+        .then(resp => resp.json())
+        .then(data => {
+            document.getElementById('standing_sitting').innerText = data.standing_sitting;
+            document.getElementById('lying_down').innerText = data.lying_down;
+            document.getElementById('fall_alert').style.display =
+                data.fall_detected ? 'block' : 'none';
+        });
+}, 1000);
+</script>
+</body>
+</html>
+

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Fall Detection History</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .navbar {
+            background-color: #333;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .navbar h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .navbar a {
+            color: white;
+            text-decoration: none;
+            margin: 0 10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        .navbar a:hover {
+            background-color: #555;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 20px;
+        }
+        h2 { text-align: center; color: #333; }
+        table { 
+            width: 100%; 
+            margin: 0 auto; 
+            border-collapse: collapse; 
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: center; 
+        }
+        th { 
+            background-color: #333;
+            color: white;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        img { 
+            max-width: 320px; 
+            height: auto; 
+            border-radius: 4px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        img:hover {
+            transform: scale(1.05);
+        }
+        .no-records { 
+            text-align: center; 
+            color: #777; 
+            margin-top: 30px;
+            font-size: 18px;
+        }
+        .error-msg { 
+            color: red; 
+            font-weight: bold; 
+            text-align: center; 
+        }
+        .missing-img { 
+            width: 320px; 
+            height: 240px; 
+            background:#eee;
+            display:flex; 
+            justify-content:center; 
+            align-items:center; 
+            color:#999;
+            border-radius: 4px;
+        }
+        button.delete { 
+            background:#dc3545; 
+            color:#fff; 
+            border:none; 
+            padding:8px 16px; 
+            cursor:pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        button.delete:hover {
+            background:#c82333;
+        }
+        .location-info {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        /* Modal styles for image zoom */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            padding-top: 60px;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.9);
+        }
+        
+        .modal-content {
+            margin: auto;
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+        }
+        
+        .modal-content {
+            animation-name: zoom;
+            animation-duration: 0.3s;
+        }
+        
+        @keyframes zoom {
+            from {transform:scale(0)} 
+            to {transform:scale(1)}
+        }
+        
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            transition: 0.3s;
+            cursor: pointer;
+        }
+        
+        .close:hover,
+        .close:focus {
+            color: #bbb;
+            text-decoration: none;
+        }
+        
+        #caption {
+            margin: auto;
+            display: block;
+            width: 80%;
+            max-width: 700px;
+            text-align: center;
+            color: #ccc;
+            padding: 10px 0;
+        }
+        
+        .timezone-notice {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+            border: 1px solid #c3e6cb;
+        }
+    </style>
+</head>
+<body>
+<div class="navbar">
+    <h1>Fall Detection History</h1>
+    <div>
+        <a href="{{ url_for('main.dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('main.monitor') }}">Monitor</a>
+        <a href="{{ url_for('main.fall_records') }}">Fall Detection History</a>
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('admin.settings') }}">Settings</a>
+        {% endif %}
+        <a href="{{ url_for('auth.logout') }}">Logout</a>
+    </div>
+</div>
+
+<div class="container">
+    <h2>Fall Detection History</h2>
+    
+
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for message in messages %}
+          <p class="error-msg">{{ message }}</p>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% if records %}
+    <table>
+        <thead>
+        <tr>
+            <th>Detection Time (HK Time)</th>
+            <th>Location</th>
+            <th>Lying Down Count</th>
+            <th>Image</th>
+            {% if current_user.is_admin %}
+            <th>Actions</th>
+            {% endif %}
+        </tr>
+        </thead>
+        <tbody>
+        {% for record in records %}
+        <tr>
+            <!-- 1 -->
+            <td>{{ record.hk_detection_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td class="location-info">G/F Lobby Cam1</td>
+            <td>{{ record.lying_down_count }}</td>
+            <td>
+                {% if record.image_path %}
+                    <img src="{{ url_for('static', filename=record.image_path) }}"
+                         alt="Fall Detection Image"
+                         onclick="openModal(this)"
+                         onerror="this.outerHTML='<div class=&quot;missing-img&quot;>Image not available</div>'">
+                {% else %}
+                    <div class="missing-img">No image</div>
+                {% endif %}
+            </td>
+            {% if current_user.is_admin %}
+            <td>
+                <form action="{{ url_for('admin.delete_fall_record', record_id=record.id) }}"
+                      method="post"
+                      onsubmit="return confirm('Are you sure you want to delete this record?');"
+                      style="display: inline;">
+                    <button class="delete">Delete</button>
+                </form>
+            </td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="no-records">No fall records found</p>
+    {% endif %}
+</div>
+
+<!-- The Modal for image zoom -->
+<div id="imageModal" class="modal">
+    <span class="close" onclick="closeModal()">&times;</span>
+    <img class="modal-content" id="modalImage">
+    <div id="caption"></div>
+</div>
+
+<script>
+// Modal functionality
+function openModal(img) {
+    var modal = document.getElementById("imageModal");
+    var modalImg = document.getElementById("modalImage");
+    var captionText = document.getElementById("caption");
+    
+    modal.style.display = "block";
+    modalImg.src = img.src;
+    captionText.innerHTML = img.alt;
+}
+
+function closeModal() {
+    var modal = document.getElementById("imageModal");
+    modal.style.display = "none";
+}
+
+// Close modal when clicking outside of the image
+window.onclick = function(event) {
+    var modal = document.getElementById("imageModal");
+    if (event.target == modal) {
+        modal.style.display = "none";
+    }
+}
+
+// Close modal with Escape key
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        closeModal();
+    }
+});
+</script>
+
+</body>
+</html>
+
+

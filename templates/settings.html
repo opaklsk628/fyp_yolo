@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Heatstroke Detection System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .navbar {
+            background-color: #333;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .navbar h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .navbar a {
+            color: white;
+            text-decoration: none;
+            margin: 0 10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        .navbar a:hover {
+            background-color: #555;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 20px;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .user-table th,
+        .user-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        .user-table th {
+            background-color: #007bff;
+            color: white;
+        }
+        .user-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .user-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        .btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 2px;
+            transition: background-color 0.3s;
+        }
+        .btn.primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn.primary:hover {
+            background-color: #0056b3;
+        }
+        .btn.warning {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        .btn.warning:hover {
+            background-color: #e0a800;
+        }
+        .btn.danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        .btn.danger:hover {
+            background-color: #c82333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group input[type="text"],
+        .form-group input[type="password"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .form-group input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .info-box {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .info-box h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .info-box ol {
+            margin-bottom: 0;
+        }
+        .info-box code {
+            background-color: #f8f9fa;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .admin-badge {
+            background-color: #28a745;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .flash-messages {
+            margin-bottom: 20px;
+        }
+        .flash-message {
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .flash-message.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .flash-message.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>Settings</h1>
+        <div>
+            <a href="{{ url_for('main.dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('main.monitor') }}">Monitor</a>
+            <a href="{{ url_for('main.fall_records') }}">Fall Detection History</a>
+            <a href="{{ url_for('admin.settings') }}">Settings</a>
+            <a href="{{ url_for('auth.logout') }}">Logout</a>
+        </div>
+    </div>
+
+    <div class="container">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for message in messages %}
+                        <div class="flash-message success">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <h1>System Settings</h1>
+
+        <!-- User Management Section -->
+        <div class="section">
+            <h2>User Management</h2>
+            <table class="user-table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>User Type</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.username }}</td>
+                        <td>
+                            {% if user.is_admin %}
+                                <span class="admin-badge">Admin</span>
+                            {% else %}
+                                Regular User
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.created_at %}
+                                {{ user.created_at.strftime('%Y-%m-%d %H:%M') }}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.id != current_user.id %}
+                                <form action="{{ url_for('admin.reset_password', user_id=user.id) }}" method="post" style="display: inline;">
+                                    <button type="submit" class="btn warning">Reset Password</button>
+                                </form>
+                                <form action="{{ url_for('admin.toggle_admin', user_id=user.id) }}" method="post" style="display: inline;">
+                                    <button type="submit" class="btn primary">
+                                        {% if user.is_admin %}Remove Admin{% else %}Make Admin{% endif %}
+                                    </button>
+                                </form>
+                                <form action="{{ url_for('admin.delete_user', user_id=user.id) }}" method="post" style="display: inline;" 
+                                      onsubmit="return confirm('Are you sure you want to delete this user?');">
+                                    <button type="submit" class="btn danger">Delete</button>
+                                </form>
+                            {% else %}
+                                <span style="color: #6c757d;">Current User</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Telegram Settings Section -->
+        <div class="section">
+            <h2>Telegram Notification Settings</h2>
+            
+            <div class="info-box">
+                <h3>How to Setup Telegram Notifications:</h3>
+                <ol>
+                    <li>Open Telegram and search for your bot: <code>@heatstroke_detection_bot</code></li>
+                    <li>Click "Start" or send <code>/start</code> to the bot</li>
+                    <li>Send any message to the bot (e.g., "Hello")</li>
+                    <li>Your Bot Token: <code>7480437158:AAHFF-uC614QnpdRZy0GOHM8P301XJUV-uQ</code></li>
+                    <li>Your Chat ID: <code>165571082</code></li>
+                    <li>Enter both values below and click Save</li>
+                </ol>
+                <p><strong>Important:</strong> You must use the Chat ID (numeric), not your username!</p>
+            </div>
+
+            <form action="{{ url_for('admin.update_telegram_settings') }}" method="POST">
+                <div class="form-group">
+                    <label for="telegram_bot_token">Bot Token:</label>
+                    <input type="text" 
+                           id="telegram_bot_token" 
+                           name="telegram_bot_token" 
+                           placeholder="Enter your Telegram bot token"
+                           value="{{ telegram_settings.telegram_bot_token if telegram_settings else '' }}">
+                    <small style="color: #666;">Example: 7480437158:AAHFF-uC614QnpdRZy0GOHM8P301XJUV-uQ</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="telegram_chat_id">Chat ID:</label>
+                    <input type="text" 
+                           id="telegram_chat_id" 
+                           name="telegram_chat_id" 
+                           placeholder="Enter your Telegram chat ID"
+                           value="{{ telegram_settings.telegram_chat_id if telegram_settings else '' }}">
+                    <small style="color: #666;">Your Chat ID: 165571082 (Must be numeric, not username!)</small>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" 
+                               name="notification_enabled" 
+                               {% if not telegram_settings or telegram_settings.notification_enabled %}checked{% endif %}>
+                        Enable Telegram Notifications
+                    </label>
+                </div>
+
+                <button type="submit" class="btn primary">Save and Test Telegram Settings</button>
+            </form>
+        </div>
+
+        <!-- System Information Section -->
+        <div class="section">
+            <h2>System Information</h2>
+            <p><strong>Current User:</strong> {{ current_user.username }}</p>
+            <p><strong>User Type:</strong> {% if current_user.is_admin %}Administrator{% else %}Regular User{% endif %}</p>
+            <p><strong>Total Users:</strong> {{ users|length }}</p>
+            <p><strong>Database:</strong> PostgreSQL</p>
+            <p><strong>Server Time:</strong> <span id="serverTime"></span></p>
+        </div>
+    </div>
+
+    <script>
+        // Update server time every second
+        function updateServerTime() {
+            const now = new Date();
+            const timeString = now.toLocaleString('en-GB', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: false 
+            }).replace(',', '');
+            document.getElementById('serverTime').textContent = timeString;
+        }
+        
+        updateServerTime();
+        setInterval(updateServerTime, 1000);
+    </script>
+</body>
+</html>
+
+
+
